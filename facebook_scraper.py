@@ -87,7 +87,7 @@ def _extract_post(article):
         'post_text': post_text,
         'shared_text': shared_text,
         'time': _extract_time(article),
-        'image': _extract_image(article),
+        'images': _extract_images(article),
         'likes': _find_and_search(article, 'footer', _likes_regex, _parse_int) or 0,
         'comments': _find_and_search(article, 'footer', _comments_regex, _parse_int) or 0,
         'shares':  _find_and_search(article, 'footer', _shares_regex, _parse_int) or 0,
@@ -143,43 +143,48 @@ def _extract_time(article):
     return None
 
 
-def _extract_photo_link(article):
-    match = _photo_link.search(article.html)
-    if not match:
+def _extract_photo_links(article):
+    image_urls = _photo_link.findall(article.html)
+    if not image_urls:
         return None
 
-    url = f"{_base_url}{match.groups()[0]}"
+    photo_links = []
+    for image_url in image_urls:
+        url = f"{_base_url}{image_url}"
+        response = _session.get(url, timeout=_timeout)
+        html = response.html.html
+        match = _image_regex.search(html)
+        if match:
+            match = match.groups()[0].replace("&amp;", "&").replace('\\', '')
+        photo_links.append(match)
 
-    response = _session.get(url, timeout=_timeout)
-    html = response.html.html
-    match = _image_regex.search(html)
-    if match:
-        return match.groups()[0].replace("&amp;", "&")
-    return None
-
-
-def _extract_image(article):
-    image_link = _extract_photo_link(article)
-    if image_link is not None:
-        return image_link
-    return _extract_image_lq(article)
+    return photo_links
 
 
-def _extract_image_lq(article):
+def _extract_images(article):
+    image_links = _extract_photo_links(article)
+    if image_links is not None:
+        return image_links
+    return _extract_images_lq(article)
+
+
+def _extract_images_lq(article):
     story_container = article.find('div.story_body_container', first=True)
     other_containers = story_container.xpath('div/div')
 
+    image_containers = []
     for container in other_containers:
-        image_container = container.find('.img', first=True)
-        if image_container is None:
-            continue
+        image_containers.extend(container.find('.img'))
 
+    image_urls = []
+    for image_container in image_containers:
         style = image_container.attrs.get('style', '')
         match = _image_regex_lq.search(style)
         if match:
-            return _decode_css_url(match.groups()[0])
+            decoded_url = _decode_css_url(match.groups()[0])
+            image_urls.append(decoded_url)
 
-    return None
+    return image_urls
 
 
 def _extract_link(article):
